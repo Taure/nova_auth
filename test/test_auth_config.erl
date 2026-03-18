@@ -5,7 +5,7 @@
 
 config() ->
     #{
-        repo => test_repo,
-        user_schema => test_user,
-        token_schema => test_token
+        repo => test_auth_repo,
+        user_schema => test_auth_user,
+        token_schema => test_auth_token
     }.

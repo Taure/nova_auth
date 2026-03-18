@@ -38,9 +38,9 @@ config_returns_defaults(_Config) ->
     ?assertEqual(14, maps:get(session_validity_days, Cfg)),
     ?assertEqual(pbkdf2_sha256, maps:get(hash_algorithm, Cfg)),
     ?assertEqual(32, maps:get(token_bytes, Cfg)),
-    ?assertEqual(test_repo, maps:get(repo, Cfg)),
-    ?assertEqual(test_user, maps:get(user_schema, Cfg)),
-    ?assertEqual(test_token, maps:get(token_schema, Cfg)).
+    ?assertEqual(test_auth_repo, maps:get(repo, Cfg)),
+    ?assertEqual(test_auth_user, maps:get(user_schema, Cfg)),
+    ?assertEqual(test_auth_token, maps:get(token_schema, Cfg)).
 
 config_caches_in_persistent_term(_Config) ->
     catch persistent_term:erase({nova_auth, test_auth_config}),
@@ -51,7 +51,7 @@ config_caches_in_persistent_term(_Config) ->
 
 config_key_lookup(_Config) ->
     catch persistent_term:erase({nova_auth, test_auth_config}),
-    ?assertEqual(test_repo, nova_auth:config(test_auth_config, repo)).
+    ?assertEqual(test_auth_repo, nova_auth:config(test_auth_config, repo)).
 
 invalidate_cache_clears(_Config) ->
     catch persistent_term:erase({nova_auth, test_auth_config}),
