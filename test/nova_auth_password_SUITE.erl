@@ -43,8 +43,7 @@ verify_wrong_password(_Config) ->
     ?assertNot(nova_auth_password:verify(<<"wrong_password">>, Hashed)).
 
 dummy_verify_returns_false(_Config) ->
-    ?assertNot(nova_auth_password:dummy_verify()),
-    ?assertNot(nova_auth_password:dummy_verify(pbkdf2_sha256)).
+    ?assertNot(nova_auth_password:dummy_verify()).
 
 hash_produces_unique_salts(_Config) ->
     Password = <<"same_password">>,

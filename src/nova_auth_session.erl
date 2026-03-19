@@ -76,7 +76,7 @@ delete_session_token(AuthMod, SessionToken) ->
             kura_query:where(kura_query:from(TokenSchema), {token, HashedToken}),
             {context, <<"session">>}
         ),
-        kura_repo_worker:delete_all(Repo, Q),
+        _ = kura_repo_worker:delete_all(Repo, Q),
         ok
     catch
         _:_ -> ok
