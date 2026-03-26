@@ -4,7 +4,13 @@ All configuration is provided through the `config/0` callback in your module
 implementing `-behaviour(nova_auth)`. The returned map is merged with defaults
 and cached in `persistent_term` for fast access.
 
-## Required Keys
+## Password Auth Keys
+
+These keys are only required when using password authentication modules
+(`nova_auth_accounts`, `nova_auth_session`, etc.). OIDC-only applications
+can omit them entirely.
+
+### Required (for password auth)
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -12,7 +18,7 @@ and cached in `persistent_term` for fast access.
 | `user_schema` | `module()` | Kura schema for the users table |
 | `token_schema` | `module()` | Kura schema for the user tokens table |
 
-## Optional Keys
+### Optional
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -45,6 +51,22 @@ config() ->
         token_bytes => 64
     }.
 ```
+
+## Actor Type
+
+All authentication strategies produce an actor map stored in the Nova session.
+The actor type is defined as:
+
+```erlang
+-type actor() :: #{
+    id := binary() | integer(),
+    provider := atom(),
+    atom() => term()
+}.
+```
+
+The `id` and `provider` fields are required. Additional fields (email, roles, etc.)
+depend on your authentication strategy and claims mapping.
 
 ## Password Hashing
 
