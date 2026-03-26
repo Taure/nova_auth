@@ -6,14 +6,63 @@ Add `nova_auth` to your `rebar.config` dependencies:
 
 ```erlang
 {deps, [
-    {nova_auth, {git, "https://github.com/novaframework/nova_auth.git", {branch, "main"}}}
+    {nova_auth, {git, "https://github.com/Taure/nova_auth.git", {branch, "main"}}}
 ]}.
 ```
 
-## Configuration Module
+## Choose Your Strategy
 
-Create a module implementing the `nova_auth` behaviour. This defines your repo,
-schemas, and authentication settings:
+nova_auth supports two usage patterns:
+
+1. **Core only** -- actor sessions, claims mapping, policies, security callbacks. No database required.
+2. **Password auth** -- adds registration, login, session tokens, confirmation, reset. Requires [Kura](https://github.com/Taure/kura).
+
+For OIDC/OAuth2, see [nova_auth_oidc](https://github.com/Taure/nova_auth_oidc) which builds on nova_auth's actor session.
+
+## Core Only (No Database)
+
+### Protect routes
+
+Use `nova_auth_security:require_authenticated/0` to protect route groups:
+
+```erlang
+#{prefix => ~"/dashboard",
+  security => nova_auth_security:require_authenticated(),
+  routes => [
+      {~"/profile", fun my_controller:profile/1, #{methods => [get]}}
+  ]}
+```
+
+Any request without an actor in the session gets a 401 JSON response automatically.
+
+### Access the actor in controllers
+
+The actor is passed as `auth_data` in the request map:
+
+```erlang
+profile(#{auth_data := Actor} = _Req) ->
+    #{id := Id, email := Email} = Actor,
+    {json, #{id => Id, email => Email}}.
+```
+
+### Store an actor manually
+
+If you have your own authentication logic, store the actor directly:
+
+```erlang
+ok = nova_auth_actor:store(Req, #{
+    id => ~"user-123",
+    provider => my_custom_auth,
+    email => ~"user@example.com",
+    roles => [admin]
+}).
+```
+
+## Password Auth (Requires Kura)
+
+### Configuration module
+
+Create a module implementing the `nova_auth` behaviour:
 
 ```erlang
 -module(my_auth).
@@ -30,7 +79,7 @@ config() ->
 
 All other options have sensible defaults (see the [Configuration](configuration.md) guide).
 
-## User Schema
+### User schema
 
 Define a Kura schema for your users table:
 
@@ -41,7 +90,7 @@ Define a Kura schema for your users table:
 
 schema() ->
     #{
-        source => <<"users">>,
+        source => ~"users",
         fields => #{
             id => #{type => integer, primary_key => true},
             email => #{type => string},
@@ -65,7 +114,7 @@ registration_changeset(Data, Params) ->
     end.
 ```
 
-## Token Schema
+### Token schema
 
 Define a Kura schema for the user tokens table:
 
@@ -76,7 +125,7 @@ Define a Kura schema for the user tokens table:
 
 schema() ->
     #{
-        source => <<"user_tokens">>,
+        source => ~"user_tokens",
         fields => #{
             id => #{type => integer, primary_key => true},
             user_id => #{type => integer},
@@ -87,69 +136,49 @@ schema() ->
     }.
 ```
 
-## Route Protection
-
-Use `nova_auth_security:require_authenticated/1` in your Nova route groups to
-protect endpoints:
-
-```erlang
-%% In your Nova router
-#{prefix => "/api",
-  security => nova_auth_security:require_authenticated(my_auth),
-  routes => [
-      {"/profile", {my_profile_controller, handle}, #{methods => [get]}}
-  ]}
-```
-
-The security function checks the session for a valid token. If the user is
-authenticated, the user map is passed as the security state. If not, a 401
-JSON response is returned automatically.
-
-## Registration
-
-Register a user with a changeset function:
+### Registration
 
 ```erlang
 handle_register(Req) ->
-    {ok, Body, Req1} = cowboy_req:read_body(Req),
+    {ok, Body, _Req1} = cowboy_req:read_body(Req),
     Params = json:decode(Body),
     case nova_auth_accounts:register(my_auth, fun my_user:registration_changeset/2, Params) of
         {ok, User} ->
-            {json, 201, #{}, #{<<"id">> => maps:get(id, User)}};
+            %% Store actor in session
+            ok = nova_auth_actor:store(Req, #{
+                id => maps:get(id, User),
+                provider => password,
+                email => maps:get(email, User)
+            }),
+            {json, 201, #{}, #{~"id" => maps:get(id, User)}};
         {error, Changeset} ->
-            {json, 422, #{}, #{<<"errors">> => kura_changeset:errors(Changeset)}}
+            {json, 422, #{}, #{~"errors" => kura_changeset:errors(Changeset)}}
     end.
 ```
 
-## Login
-
-Authenticate and create a session:
+### Login
 
 ```erlang
 handle_login(Req) ->
-    {ok, Body, Req1} = cowboy_req:read_body(Req),
-    #{<<"email">> := Email, <<"password">> := Password} = json:decode(Body),
+    {ok, Body, _Req1} = cowboy_req:read_body(Req),
+    #{~"email" := Email, ~"password" := Password} = json:decode(Body),
     case nova_auth_accounts:authenticate(my_auth, Email, Password) of
         {ok, User} ->
-            {ok, Token} = nova_auth_session:generate_session_token(my_auth, User),
-            Req2 = nova_session:set(Req1, <<"session_token">>, Token),
-            {json, 200, #{}, #{<<"user_id">> => maps:get(id, User)}};
+            ok = nova_auth_actor:store(Req, #{
+                id => maps:get(id, User),
+                provider => password,
+                email => maps:get(email, User)
+            }),
+            {json, 200, #{}, #{~"user_id" => maps:get(id, User)}};
         {error, invalid_credentials} ->
-            {json, 401, #{}, #{<<"error">> => <<"invalid credentials">>}}
+            {json, 401, #{}, #{~"error" => ~"invalid credentials"}}
     end.
 ```
 
-## Logout
-
-Delete the session token:
+### Logout
 
 ```erlang
 handle_logout(Req) ->
-    case nova_session:get(Req, <<"session_token">>) of
-        {ok, Token} ->
-            nova_auth_session:delete_session_token(my_auth, Token),
-            {json, 200, #{}, #{<<"ok">> => true}};
-        _ ->
-            {json, 200, #{}, #{<<"ok">> => true}}
-    end.
+    nova_auth_actor:delete(Req),
+    {json, 200, #{}, #{~"ok" => true}}.
 ```
