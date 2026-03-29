@@ -7,6 +7,7 @@ condition functions that can be evaluated against an actor and context.
 -export([
     allow_authenticated/0,
     allow_role/1,
+    allow_claim/2,
     allow_owner/1,
     deny_all/0
 ]).
@@ -31,6 +32,33 @@ allow_role(Roles) when is_list(Roles) ->
         condition => fun(Actor, _Extra) ->
             UserRole = maps:get(role, Actor, undefined),
             lists:member(UserRole, Roles)
+        end
+    }.
+
+-doc """
+Allow actors who have a specific claim value. Works with both single-valued
+and list-valued claims (e.g., Authentik groups mapped to roles).
+
+```
+allow_claim(roles, admin)
+allow_claim(roles, [admin, editor])
+```
+""".
+-spec allow_claim(atom(), term() | [term()]) -> policy().
+allow_claim(ClaimKey, Value) when not is_list(Value) ->
+    allow_claim(ClaimKey, [Value]);
+allow_claim(ClaimKey, Values) when is_list(Values) ->
+    #{
+        action => '_',
+        condition => fun(Actor, _Extra) ->
+            case maps:get(ClaimKey, Actor, undefined) of
+                undefined ->
+                    false;
+                ActorValue when is_list(ActorValue) ->
+                    lists:any(fun(V) -> lists:member(V, ActorValue) end, Values);
+                ActorValue ->
+                    lists:member(ActorValue, Values)
+            end
         end
     }.
 

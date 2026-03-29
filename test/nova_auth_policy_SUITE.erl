@@ -9,6 +9,10 @@
     allow_role_single/1,
     allow_role_list/1,
     allow_role_wrong_role/1,
+    allow_claim_single_value/1,
+    allow_claim_list_values/1,
+    allow_claim_actor_has_list/1,
+    allow_claim_missing_key/1,
     allow_owner_read_returns_filter/1,
     allow_owner_write_matches/1,
     allow_owner_write_no_match/1,
@@ -26,6 +30,10 @@ groups() ->
             allow_role_single,
             allow_role_list,
             allow_role_wrong_role,
+            allow_claim_single_value,
+            allow_claim_list_values,
+            allow_claim_actor_has_list,
+            allow_claim_missing_key,
             allow_owner_read_returns_filter,
             allow_owner_write_matches,
             allow_owner_write_no_match,
@@ -52,6 +60,26 @@ allow_role_list(_Config) ->
 allow_role_wrong_role(_Config) ->
     #{condition := Cond} = nova_auth_policy:allow_role(admin),
     ?assertNot(Cond(#{id => 1, role => user}, #{})).
+
+allow_claim_single_value(_Config) ->
+    #{condition := Cond} = nova_auth_policy:allow_claim(role, admin),
+    ?assert(Cond(#{id => 1, role => admin}, #{})),
+    ?assertNot(Cond(#{id => 1, role => user}, #{})).
+
+allow_claim_list_values(_Config) ->
+    #{condition := Cond} = nova_auth_policy:allow_claim(role, [admin, editor]),
+    ?assert(Cond(#{id => 1, role => admin}, #{})),
+    ?assert(Cond(#{id => 1, role => editor}, #{})),
+    ?assertNot(Cond(#{id => 1, role => viewer}, #{})).
+
+allow_claim_actor_has_list(_Config) ->
+    #{condition := Cond} = nova_auth_policy:allow_claim(roles, admin),
+    ?assert(Cond(#{id => 1, roles => [admin, user]}, #{})),
+    ?assertNot(Cond(#{id => 1, roles => [user, viewer]}, #{})).
+
+allow_claim_missing_key(_Config) ->
+    #{condition := Cond} = nova_auth_policy:allow_claim(roles, admin),
+    ?assertNot(Cond(#{id => 1}, #{})).
 
 allow_owner_read_returns_filter(_Config) ->
     #{condition := Cond} = nova_auth_policy:allow_owner(user_id),

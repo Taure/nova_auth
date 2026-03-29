@@ -3,17 +3,29 @@
 Behaviour for nova_auth configuration. Implementing modules define
 authentication settings (repo, schemas, token lifetimes). Configuration
 is cached in persistent_term for fast repeated access.
+
+Password-related keys (`repo`, `user_schema`, `token_schema`) are only
+required when using password authentication modules (nova_auth_accounts,
+nova_auth_session, etc.). OIDC-only applications can omit them entirely.
 """.
 
 -include("../include/nova_auth.hrl").
 
 -export([config/1, config/2, invalidate_cache/1]).
 
+-export_type([actor/0]).
+
+-type actor() :: #{
+    id := binary() | integer(),
+    provider := atom(),
+    atom() => term()
+}.
+
 -callback config() ->
     #{
-        repo := module(),
-        user_schema := module(),
-        token_schema := module(),
+        repo => module(),
+        user_schema => module(),
+        token_schema => module(),
         user_identity_field => atom(),
         user_password_field => atom(),
         session_validity_days => pos_integer(),
