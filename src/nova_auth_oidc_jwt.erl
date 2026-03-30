@@ -43,12 +43,21 @@ validate_token(ConfigMod, Provider, Token) ->
 decode_jwt_payload(Token) ->
     case binary:split(Token, ~".", [global]) of
         [_, PayloadB64, _] ->
-            try
-                Decoded = base64:decode(PayloadB64, #{mode => urlsafe, padding => false}),
-                {ok, json:decode(Decoded)}
-            catch
-                _:_ -> {error, invalid_jwt}
-            end;
+            decode_payload_b64(PayloadB64);
         _ ->
             {error, invalid_jwt_format}
+    end.
+
+-spec decode_payload_b64(binary()) -> {ok, map()} | {error, invalid_jwt}.
+decode_payload_b64(PayloadB64) ->
+    try base64:decode(PayloadB64, #{mode => urlsafe, padding => false}) of
+        Decoded ->
+            try json:decode(Decoded) of
+                Map when is_map(Map) -> {ok, Map};
+                _ -> {error, invalid_jwt}
+            catch
+                _:_ -> {error, invalid_jwt}
+            end
+    catch
+        _:_ -> {error, invalid_jwt}
     end.
