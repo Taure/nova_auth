@@ -2,18 +2,17 @@
 
 Authentication library for the [Nova](https://github.com/novaframework/nova) ecosystem.
 
-Session-based authentication with PBKDF2-SHA256 password hashing, token lifecycle management, rate limiting, and policy helpers — everything needed to add auth to a Nova application without duplicating logic across projects.
+Provides a unified actor session, claims mapping, authorization policies, and optional password-based authentication. Works standalone or as the foundation for [nova_auth_oidc](https://github.com/Taure/nova_auth_oidc).
 
 ## Features
 
-- **PBKDF2-SHA256 hashing** — Secure password hashing using OTP's `crypto` module with 600,000 iterations. No NIF dependencies.
-- **Session tokens** — Generate, validate, and revoke database-backed session tokens via Kura.
-- **Rate limiting** — Nova plugin with configurable sliding-window rate limiting (ETS-backed).
-- **Email confirmation** — Token-based email confirmation flow.
-- **Password reset** — Token-based password reset flow with configurable expiry.
-- **Security callback** — Drop-in Nova security function for protecting route groups.
-- **Policy helpers** — Composable authorization policies for nova_resource (role-based, ownership, authenticated).
-- **Timing-safe** — Dummy verification on failed lookups to prevent user enumeration.
+- **Unified actor session** -- Strategy-agnostic session storage. Password auth, OIDC, JWT -- all produce the same actor map in the session.
+- **Claims mapping** -- Transform provider-specific claims to actor maps with static maps or callback functions.
+- **Security callbacks** -- Drop-in Nova security function for protecting route groups.
+- **Policy helpers** -- Composable authorization policies (role-based, claim-based, ownership, authenticated).
+- **Rate limiting** -- Nova plugin with configurable sliding-window rate limiting via Seki.
+- **Password auth** (optional, requires [Kura](https://github.com/Taure/kura)) -- PBKDF2-SHA256 hashing, session tokens, email confirmation, password reset.
+- **Timing-safe** -- Dummy verification on failed lookups to prevent user enumeration.
 
 ## Quick Start
 
@@ -21,14 +20,34 @@ Add `nova_auth` to your deps:
 
 ```erlang
 {deps, [
-    {nova_auth, {git, "https://github.com/novaframework/nova_auth.git", {branch, "main"}}}
+    {nova_auth, {git, "https://github.com/Taure/nova_auth.git", {branch, "main"}}}
 ]}.
 ```
 
-Create a config module:
+### OIDC-only (no database)
+
+If you only need actor sessions and policies (e.g., with [nova_auth_oidc](https://github.com/Taure/nova_auth_oidc)):
 
 ```erlang
--module(my_auth_config).
+%% Protect routes -- works with any auth strategy that stores an actor
+#{prefix => ~"/dashboard",
+  security => nova_auth_security:require_authenticated(),
+  routes => [
+      {~"/profile", fun my_controller:profile/1, #{methods => [get]}}
+  ]}
+
+%% Access actor in controller
+profile(#{auth_data := Actor} = _Req) ->
+    Email = maps:get(email, Actor, ~"unknown"),
+    {json, #{email => Email}}.
+```
+
+### Password auth (requires Kura)
+
+Create a config module implementing the `nova_auth` behaviour:
+
+```erlang
+-module(my_auth).
 -behaviour(nova_auth).
 -export([config/0]).
 
@@ -40,42 +59,54 @@ config() ->
     }.
 ```
 
-Protect routes:
-
-```erlang
-#{prefix => <<"/api">>,
-  security => nova_auth_security:require_authenticated(my_auth_config),
-  routes => [
-      {<<"/me">>, fun my_user_controller:show/1, #{methods => [get]}}
-  ]}
-```
-
 Register and authenticate:
 
 ```erlang
 %% Register
 {ok, User} = nova_auth_accounts:register(
-    my_auth_config, fun my_user:registration_changeset/2, Params
+    my_auth, fun my_user:registration_changeset/2, Params
 ).
 
-%% Authenticate
-{ok, User} = nova_auth_accounts:authenticate(
-    my_auth_config, <<"user@example.com">>, <<"password123456">>
-).
+%% Authenticate and store actor in session
+{ok, User} = nova_auth_accounts:authenticate(my_auth, ~"user@example.com", ~"password123456").
+ok = nova_auth_actor:store(Req, #{id => maps:get(id, User), provider => password, email => maps:get(email, User)}).
 
-%% Session token
-{ok, Token} = nova_auth_session:generate_session_token(my_auth_config, User).
+%% Session token (database-backed)
+{ok, Token} = nova_auth_session:generate_session_token(my_auth, User).
 ```
+
+## Modules
+
+### Core (no dependencies beyond Nova)
+
+| Module | Description |
+|--------|-------------|
+| `nova_auth_actor` | Store/fetch actor maps from Nova session |
+| `nova_auth_claims` | Transform provider claims to actor maps |
+| `nova_auth_security` | Route-level security callbacks |
+| `nova_auth_policy` | Authorization policies for nova_resource |
+| `nova_auth_rate_limit` | Rate limiting Nova plugin |
+
+### Password auth (requires Kura)
+
+| Module | Description |
+|--------|-------------|
+| `nova_auth_accounts` | Registration, authentication, password/identity changes |
+| `nova_auth_session` | Database-backed session token management |
+| `nova_auth_password` | PBKDF2-SHA256 password hashing |
+| `nova_auth_token` | Token generation and validation |
+| `nova_auth_confirm` | Email confirmation flow |
+| `nova_auth_reset` | Password reset flow |
 
 ## Configuration
 
-All options with defaults:
+Password auth options (all optional with defaults):
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `repo` | *required* | Kura repo module |
-| `user_schema` | *required* | Kura user schema module |
-| `token_schema` | *required* | Kura token schema module |
+| `repo` | -- | Kura repo module (required for password auth) |
+| `user_schema` | -- | Kura user schema module |
+| `token_schema` | -- | Kura token schema module |
 | `user_identity_field` | `email` | Field used for login lookup |
 | `user_password_field` | `hashed_password` | Field storing the password hash |
 | `session_validity_days` | `14` | Days before session tokens expire |
@@ -84,29 +115,26 @@ All options with defaults:
 | `hash_algorithm` | `pbkdf2_sha256` | Password hashing algorithm |
 | `token_bytes` | `32` | Random bytes for token generation |
 
-## Rate Limiting
+## Guides
 
-Add as a Nova plugin to any route group:
+- [Getting Started](guides/getting-started.md) -- Installation and first setup
+- [Configuration](guides/configuration.md) -- Full configuration reference
+- [Actor Session](guides/actor-session.md) -- How the unified actor session works
+- [Claims Mapping](guides/claims-mapping.md) -- Transforming provider claims
+- [Policies](guides/policies.md) -- Authorization with nova_resource
+- [Rate Limiting](guides/rate-limiting.md) -- Protecting routes from abuse
 
-```erlang
-#{prefix => <<"/api">>,
-  plugins => [
-      {pre_request, nova_auth_rate_limit, #{
-          max_requests => 10,
-          window_seconds => 60
-      }}
-  ],
-  routes => [...]}
-```
+## Related Libraries
 
-## Scaffolding
-
-Use `rebar3 nova gen_auth` to generate schemas, controllers, and a config module that delegates to nova_auth.
+- [nova_auth_oidc](https://github.com/Taure/nova_auth_oidc) -- OIDC login, JWT bearer validation, token introspection, client credentials
+- [Nova](https://github.com/novaframework/nova) -- Web framework
+- [Kura](https://github.com/Taure/kura) -- Database layer (optional)
+- [Seki](https://github.com/Taure/seki) -- Rate limiting
 
 ## Requirements
 
-- Erlang/OTP 27+
-- PostgreSQL (via Kura + pgo)
+- Erlang/OTP 28+
+- PostgreSQL via Kura + pgo (only for password auth)
 
 ## License
 

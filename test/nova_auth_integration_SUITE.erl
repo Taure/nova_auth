@@ -32,7 +32,7 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(telemetry),
+    {ok, _} = application:ensure_all_started(kura),
     {ok, _} = application:ensure_all_started(pgo),
     ok = test_auth_repo:start(),
     setup_tables(),
