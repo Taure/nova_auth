@@ -7,6 +7,6 @@
     {optional_applications, [kura]},
     {env, []},
     {modules, []},
-    {licenses, ["MIT"]},
-    {links, []}
+    {licenses, ["Apache-2.0"]},
+    {links, [{"GitHub", "https://github.com/novaframework/nova_auth"}]}
 ]}.
